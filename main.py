@@ -6,9 +6,12 @@ from dataclasses import dataclass
 import numpy as np
 from numpy import ndarray, float64
 from numpy.core.fromnumeric import shape
+from numpy.lib.function_base import kaiser
 import pandas as pd
 import matplotlib.pyplot as plt
+from pandas.core.frame import DataFrame
 import seaborn as sns
+import warnings
 
 from argparse import ArgumentParser, Namespace
 import cupy as cp
@@ -87,84 +90,158 @@ def getSystem():
     graph[4, 3] = 11
     graph[4, 5] = getUniform(8, 10)
     graph[5, 6] = getUniform(9, 10)
-    starts = [0]
-    ends = [6]
-    return graph, starts, ends
+
+    start = 0
+    end = 6
+
+    return graph, start, end
+
+
+def getChildren(system: ndarray, index: int):
+    for next in range(len(system)):
+        edge = system[index, next]
+        if edge != 0:
+            yield next, edge
+
+
+def getParents(system: ndarray, index: int):
+    # parents:List[tuple(int, float64)] = []
+    parents = []
+    for parent in range(len(system)):
+        edge = system[parent, index]
+        if edge != 0:
+            parents.append((parent, edge))
+    return parents
 
 
 def findPaths(system: ndarray, root: int):
+    def findPaths_r(system: ndarray, path: List[int], paths: List[List[int]]):
+        root = path[-1]
+        # p(f'[{root+ 1}]')
+
+        if root == len(system) - 1:
+            paths += [path]
+            # log(paths)
+        else:
+            for next in range(len(system)):
+                edge = system[root, next]
+                if edge != 0:
+                    # p(f'  ({root + 1}, {next + 1}) -> {edge.round(2)}')
+                    paths = findPaths_r(system, path + [next], paths)
+
+        return paths
+
     start = [root]
     return findPaths_r(system, start, [])
 
 
-def findPaths_r(system: ndarray, path: List[int], paths: List[List[int]]):
-    root = path[-1]
-    # p(f'[{root+ 1}]')
-
-    if root == len(system) - 1:
-        paths += [path]
-        # log(paths)
-    else:
-        for next in range(len(system)):
-            edge = system[root, next]
-            if edge != 0:
-                # p(f'  ({root + 1}, {next + 1}) -> {edge.round(2)}')
-                paths = findPaths_r(system, path + [next], paths)
-
-    return paths
-
-
-def main(args: Namespace):
-    trials = args.trials
-    trials = 100000
-
+def simulatePaths(trials: int = 1, display: bool = False):
     # get number of paths
-    system, starts, _ = getSystem()
-    paths = findPaths(system, starts[0])
+    system, start, end = getSystem()
+    paths = findPaths(system, start)
     path_cnt = len(paths)
 
-    history = np.zeros((trials, path_cnt))
+    history = np.empty((trials, path_cnt))
 
     np.random.seed(137)
-
-    for trial in track(range(trials)):
-        # system, starts, ends = getSystem()
+    for trial in track(range(trials), 'Running Path Trials'):
         system, _, _ = getSystem()
-        # paths = findPaths(system, starts[0])
         for path_id, path in enumerate(paths):
             time = 0
             for idx in range(len(path)-1):
                 edge = path[idx], path[idx+1]
                 time += system[edge]
-            # p(f'path {path}:\n    time = {time.round(2)}')
             history[trial, path_id] = time
 
     # Create dataframe for visualization
     columns = [str(path) for path in paths]
     df = pd.DataFrame(history, columns=columns)
-    # df /= df.max(axis=1)
-    p(df.head())
 
     #! Remove constant path because it distorts the bound
     df = df.drop(columns=columns[3])
+    cols = columns.copy()
+    cols.pop(3)
 
-    # sns.histplot(df, bins=100, stat='probability')
-    sns.histplot(df, bins=50)
-    # sns.kdeplot(data=df)
-    # plt.show()
-    # sns.histplot(df[columns[0]], bins=100, stat='probability')
-    # plt.show()
-    # sns.histplot(df[columns[1]], bins=100, stat='probability')
-    # plt.show()
-    # sns.histplot(df[columns[2]], bins=100, stat='probability')
-    # plt.show()
-    # sns.histplot(df[columns[4]], bins=100, stat='probability')
-    # plt.show()
-    # df = pd.Series(history[:, [0, 1, 2, 4]].flatten())   # type: ignore
-    # sns.histplot(df, bins=50, stat='probability')
-    # sns.kdeplot(data=df)
-    # sns.distplot(df)
-    plt.show()
+    if display:
+        with console.status('Plotting/Displaying'):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                for col in track(cols, 'Plotting'):
+                    sns.distplot(df[col])
+
+            sns.set()
+            plt.title('PDF for System Paths')
+            plt.legend(labels=cols)
+            plt.xlabel('Time')
+            # plt.ylabel('')
+            plt.tight_layout()  # type: ignore
+            plt.show()
+
+    return df[cols[-2]]
+
+
+def simulateSystem(trials: int = 1, display: bool = False):
+    def calcTime(system: ndarray, curr: int, root: int) -> float64:
+        parents = getParents(system, curr)
+
+        def add_parents_and_edge(idx) -> float64:
+            time = calcTime(system, idx, root)
+            time += system[idx, curr]
+            return time
+
+        # if the start is the only parent return the edge value
+        if root == parents[0][0] and len(parents) == 1:
+            return parents[0][1]
+        # else continue to bubble up
+        else:
+            times = [add_parents_and_edge(p[0]) for p in parents]
+            return max(times)
+
+    history = np.empty(trials)
+
+    for trial in track(range(trials), 'Running System Trials'):
+        system, start, end = getSystem()
+        history[trial] = calcTime(system, end, start)
+
+    df = pd.DataFrame(history, columns=['Time'])
+
+    if display:
+        with console.status('Plotting/Displaying'):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                sns.distplot(df)
+            sns.set()
+            plt.title('PDF for System Simulation')
+            plt.xlabel('Time')
+            # plt.ylabel('')
+            plt.tight_layout()  # type: ignore
+            plt.show()
+
+    return df
+
+
+def main(args: Namespace):
+    trials = args.trials
+    # trials = 1000000
+    trials = 10000
+
+    display = True
+    critical_path = simulatePaths(trials, display)
+    sim_time = simulateSystem(trials, display)
+
+    with console.status('Plotting/Displaying'):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sns.distplot(critical_path, label='Critical Path')
+            sns.distplot(sim_time, label='System')
+        sns.set()
+        plt.title('Simulation PDFs')
+        plt.xlabel('Time')
+        # plt.ylabel('')
+        plt.legend()
+        plt.tight_layout()  # type: ignore
+        plt.show()
+
     pass
 
 
