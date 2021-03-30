@@ -1,38 +1,35 @@
 #!/usr/bin/python
 
-from os import stat
-from typing import Any, List, Tuple
-from dataclasses import dataclass
-import numpy as np
-from numpy import ndarray, float64
-from numpy.core.fromnumeric import shape
-from numpy.lib.function_base import kaiser
-import pandas as pd
-import matplotlib.pyplot as plt
-from pandas.core.frame import DataFrame
-import seaborn as sns
+# Standard libs
+from argparse import ArgumentParser, Namespace
+from types import GeneratorType
+from typing import List, Tuple
 import warnings
 
-from argparse import ArgumentParser, Namespace
-import cupy as cp
+# Data Science libs
+import matplotlib.pyplot as plt
+import numpy as np
+from numpy import ndarray, float64
+import pandas as pd
+from pandas.core.frame import DataFrame
+from pandas.core.series import Series
+import seaborn as sns
 
+# Formatting libs
 from rich import inspect, print as p
 from rich.console import Console
-from rich.syntax import Syntax, SyntaxTheme
 from rich import traceback
 from rich.progress import track
-
-sns.set()
+# Global console for pretty printing and traceback for better debugging
 console = Console()
 traceback.install()
 
-NP_TYPE = cp.byte
-
 PROMPT = """PROMPT
-A software process is represented as a network with some process time between nodes having Uniform distribution (U) and others with Deterministic values.
-  c.Analyze the performance of the system,
-  d.After adequate samples, show how you quantify the criticalityof each path.
-  e.Briefly explain your redesign perspectiveof such a system
+A software process is represented as a network with some process time between \
+nodes having Uniform distribution (U) and others with Deterministic values.
+  [c. Analyze the performance of the system],
+  [d. After adequate samples, show how you quantify the criticalityof each path],
+  [e. Briefly explain your redesign perspectiveof such a system]
 """
 
 WEIGHTS = """
@@ -49,18 +46,6 @@ WEIGHTS = """
 """
 
 
-def title(str: Any):
-    console.rule(str)
-
-
-def log(str: Any):
-    console.log(str)
-
-
-def toPercent(num) -> str:
-    return f'{np.round(num * 100, 2)}%'
-
-
 def setupArgParser() -> Namespace:
     parser = ArgumentParser(description=PROMPT)
     # parser.add_argument('-trials', metavar='T', type=int, default=120000000,  # Max size for random
@@ -69,27 +54,23 @@ def setupArgParser() -> Namespace:
     return parser.parse_args()
 
 
-def getUniform(min: float, max: float):
-    return np.random.uniform(min, max)   # type: ignore
-
-
-def getTriangle(left, mode, right):
-    return np.random.triangular(left, mode, right)   # type: ignore
-
-
-def getSystem():
+def getSystem() -> Tuple[ndarray, int, int]:
     # np.random.seed(137)
+
+    Uniform = np.random.uniform
+    Triangle = np.random.triangular  # type: ignore
+
     graph = np.zeros((7, 7))
-    graph[0, 1] = getUniform(4, 6)
+    graph[0, 1] = Uniform(4, 6)  # type: ignore
     graph[0, 4] = 6
     graph[1, 2] = 6
-    graph[1, 3] = getUniform(6, 8)
-    graph[2, 3] = getTriangle(4, 8, 10)
+    graph[1, 3] = Uniform(6, 8)  # type: ignore
+    graph[2, 3] = Triangle(4, 8, 10)
     graph[3, 6] = 4
     graph[4, 2] = 8
     graph[4, 3] = 11
-    graph[4, 5] = getUniform(8, 10)
-    graph[5, 6] = getUniform(9, 10)
+    graph[4, 5] = Uniform(8, 10)  # type: ignore
+    graph[5, 6] = Uniform(9, 10)  # type: ignore
 
     start = 0
     end = 6
@@ -97,16 +78,15 @@ def getSystem():
     return graph, start, end
 
 
-def getChildren(system: ndarray, index: int):
+def getChildren(system: ndarray, index: int) -> GeneratorType:
     for next in range(len(system)):
         edge = system[index, next]
         if edge != 0:
-            yield next, edge
+            yield next
 
 
-def getParents(system: ndarray, index: int):
-    # parents:List[tuple(int, float64)] = []
-    parents = []
+def getParents(system: ndarray, index: int) -> List[Tuple[int, float64]]:
+    parents: List[Tuple[int, float64]] = []
     for parent in range(len(system)):
         edge = system[parent, index]
         if edge != 0:
@@ -114,20 +94,15 @@ def getParents(system: ndarray, index: int):
     return parents
 
 
-def findPaths(system: ndarray, root: int):
+def findPaths(system: ndarray, root: int) -> List[List[int]]:
     def findPaths_r(system: ndarray, path: List[int], paths: List[List[int]]):
         root = path[-1]
-        # p(f'[{root+ 1}]')
 
         if root == len(system) - 1:
             paths += [path]
-            # log(paths)
         else:
-            for next in range(len(system)):
-                edge = system[root, next]
-                if edge != 0:
-                    # p(f'  ({root + 1}, {next + 1}) -> {edge.round(2)}')
-                    paths = findPaths_r(system, path + [next], paths)
+            for child in getChildren(system, root):
+                paths = findPaths_r(system, path + [child], paths)
 
         return paths
 
@@ -135,7 +110,7 @@ def findPaths(system: ndarray, root: int):
     return findPaths_r(system, start, [])
 
 
-def simulatePaths(trials: int = 1, display: bool = False):
+def simulatePaths(trials: int = 1, display: bool = False) -> Series:
     # get number of paths
     system, start, end = getSystem()
     paths = findPaths(system, start)
@@ -155,7 +130,7 @@ def simulatePaths(trials: int = 1, display: bool = False):
 
     # Create dataframe for visualization
     columns = [str(path) for path in paths]
-    df = pd.DataFrame(history, columns=columns)
+    df = DataFrame(history, columns=columns)
 
     #! Remove constant path because it distorts the bound
     df = df.drop(columns=columns[3])
@@ -180,7 +155,7 @@ def simulatePaths(trials: int = 1, display: bool = False):
     return df[cols[-2]]
 
 
-def simulateSystem(trials: int = 1, display: bool = False):
+def simulateSystem(trials: int = 1, display: bool = False) -> Series:
     def calcTime(system: ndarray, curr: int, root: int) -> float64:
         parents = getParents(system, curr)
 
@@ -203,13 +178,13 @@ def simulateSystem(trials: int = 1, display: bool = False):
         system, start, end = getSystem()
         history[trial] = calcTime(system, end, start)
 
-    df = pd.DataFrame(history, columns=['Time'])
+    hist = Series(history)
 
     if display:
         with console.status('Plotting/Displaying'):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                sns.distplot(df)
+                sns.distplot(hist)
             sns.set()
             plt.title('PDF for System Simulation')
             plt.xlabel('Time')
@@ -217,13 +192,13 @@ def simulateSystem(trials: int = 1, display: bool = False):
             plt.tight_layout()  # type: ignore
             plt.show()
 
-    return df
+    return hist
 
 
 def main(args: Namespace):
     trials = args.trials
     # trials = 1000000
-    trials = 10000
+    trials = 100000
 
     display = True
     critical_path = simulatePaths(trials, display)
