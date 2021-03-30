@@ -51,8 +51,8 @@ def setupArgParser() -> Namespace:
     parser = ArgumentParser(description=PROMPT)
     parser.add_argument('-trials', metavar='T', type=int, default=10,
                         help='Number of trials to run (to stabilize statistical values)')
-    parser.add_argument('-use-kitty', type=bool, default=False,
-                        help='Allows inline plotting in the Kitty terminal')
+    parser.add_argument('-use-kitty', action='store_false', help='Allows inline plotting in the Kitty terminal')
+    parser.add_argument('-plots', action='store_true')
     return parser.parse_args()
 
 
@@ -201,25 +201,33 @@ def simulateSystem(trials: int = 1, display: bool = False) -> Series:
 def main(args: Namespace):
     trials = args.trials
 
-    display = True
+    display = args.plots
     console.rule('[bold purple]Paths Simulation')
     critical_path = simulatePaths(trials, display)
     console.rule('[bold blue]System Simulation')
     sim_time = simulateSystem(trials, display)
 
-    with console.status('Plotting'), warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        sns.distplot(critical_path, label='Critical Path')
-        sns.distplot(sim_time, label='System')
-        sns.set()
-        plt.title('Simulation PDFs')
-        plt.xlabel('Time')
-        # plt.ylabel('')
-        plt.legend()
-        plt.tight_layout()  # type: ignore
-
     console.rule('[bold cyan]Critical Path vs. System Simulation')
-    plt.show()
+
+    if display:
+        with console.status('Plotting'), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sns.distplot(critical_path, label='Critical Path')
+            sns.distplot(sim_time, label='System')
+            sns.set()
+            plt.title('Simulation PDFs')
+            plt.xlabel('Time')
+            # plt.ylabel('')
+            plt.legend()
+            plt.tight_layout()  # type: ignore
+        plt.show()
+
+    expected_val = critical_path.mean()
+    actual_val = sim_time.mean()
+    pct_error = abs((actual_val - expected_val)/expected_val) * 100
+    p(f'Critical Path Mean:    {expected_val:0.4f}')
+    p(f'Simulated System Mean: {actual_val  :0.4f}')
+    p(f'Error: {pct_error:0.2f}%')
 
     pass
 
