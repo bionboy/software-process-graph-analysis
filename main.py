@@ -1,25 +1,26 @@
 #!/usr/bin/python
 
 # Standard libs
+import matplotlib.pyplot as plt
+from rich.progress import track
+from rich import traceback
+from rich.console import Console
+from rich import inspect, print as p
+import seaborn as sns
+from pandas.core.series import Series
+from pandas.core.frame import DataFrame
+import pandas as pd
+from numpy import ndarray, float64
+import numpy as np
 from argparse import ArgumentParser, Namespace
 from types import GeneratorType
 from typing import List, Tuple
 import warnings
 
 # Data Science libs
-import matplotlib.pyplot as plt
-import numpy as np
-from numpy import ndarray, float64
-import pandas as pd
-from pandas.core.frame import DataFrame
-from pandas.core.series import Series
-import seaborn as sns
+import matplotlib
 
 # Formatting libs
-from rich import inspect, print as p
-from rich.console import Console
-from rich import traceback
-from rich.progress import track
 # Global console for pretty printing and traceback for better debugging
 console = Console()
 traceback.install()
@@ -48,10 +49,15 @@ WEIGHTS = """
 
 def setupArgParser() -> Namespace:
     parser = ArgumentParser(description=PROMPT)
-    # parser.add_argument('-trials', metavar='T', type=int, default=120000000,  # Max size for random
-    parser.add_argument('-trials', metavar='T', type=int, default=1,  # Max size for random
+    parser.add_argument('-trials', metavar='T', type=int, default=10,
                         help='Number of trials to run (to stabilize statistical values)')
+    parser.add_argument('-use-kitty', type=bool, default=False,
+                        help='Allows inline plotting in the Kitty terminal')
     return parser.parse_args()
+
+
+def getFig() -> plt.Figure:
+    return plt.figure(figsize=(8, 8))
 
 
 def getSystem() -> Tuple[ndarray, int, int]:
@@ -138,19 +144,17 @@ def simulatePaths(trials: int = 1, display: bool = False) -> Series:
     cols.pop(3)
 
     if display:
-        with console.status('Plotting/Displaying'):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                for col in track(cols, 'Plotting'):
-                    sns.distplot(df[col])
-
+        with console.status('Plotting'), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for col in track(cols, 'Plotting'):
+                sns.distplot(df[col])
             sns.set()
             plt.title('PDF for System Paths')
             plt.legend(labels=cols)
             plt.xlabel('Time')
             # plt.ylabel('')
             plt.tight_layout()  # type: ignore
-            plt.show()
+        plt.show()
 
     return df[cols[-2]]
 
@@ -181,45 +185,50 @@ def simulateSystem(trials: int = 1, display: bool = False) -> Series:
     hist = Series(history)
 
     if display:
-        with console.status('Plotting/Displaying'):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                sns.distplot(hist)
+        with console.status('Plotting'), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sns.distplot(hist)
             sns.set()
             plt.title('PDF for System Simulation')
             plt.xlabel('Time')
             # plt.ylabel('')
             plt.tight_layout()  # type: ignore
-            plt.show()
+        plt.show()
 
     return hist
 
 
 def main(args: Namespace):
     trials = args.trials
-    # trials = 1000000
-    trials = 100000
 
     display = True
+    console.rule('[bold purple]Paths Simulation')
     critical_path = simulatePaths(trials, display)
+    console.rule('[bold blue]System Simulation')
     sim_time = simulateSystem(trials, display)
 
-    with console.status('Plotting/Displaying'):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            sns.distplot(critical_path, label='Critical Path')
-            sns.distplot(sim_time, label='System')
+    with console.status('Plotting'), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sns.distplot(critical_path, label='Critical Path')
+        sns.distplot(sim_time, label='System')
         sns.set()
         plt.title('Simulation PDFs')
         plt.xlabel('Time')
         # plt.ylabel('')
         plt.legend()
         plt.tight_layout()  # type: ignore
-        plt.show()
+
+    console.rule('[bold cyan]Critical Path vs. System Simulation')
+    plt.show()
 
     pass
 
 
 if __name__ == '__main__':
     args = setupArgParser()
+
+    if args.use_kitty:
+        matplotlib.use('module://matplotlib-backend-kitty')
+        matplotlib.rc('figure', figsize=(100, 1), dpi=100)   # type: ignore
+
     main(args)
