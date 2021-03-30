@@ -1,26 +1,24 @@
 #!/usr/bin/python
 
-# Standard libs
-import matplotlib.pyplot as plt
-from rich.progress import track
-from rich import traceback
-from rich.console import Console
-from rich import inspect, print as p
-import seaborn as sns
-from pandas.core.series import Series
-from pandas.core.frame import DataFrame
-import pandas as pd
-from numpy import ndarray, float64
-import numpy as np
+import warnings
 from argparse import ArgumentParser, Namespace
 from types import GeneratorType
 from typing import List, Tuple
-import warnings
 
-# Data Science libs
-import matplotlib
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from numpy import float64, ndarray
+from pandas.core.frame import DataFrame
+from pandas.core.series import Series
+from rich import inspect
+from rich import print as p
+from rich import traceback
+from rich.console import Console
+from rich.progress import track
 
-# Formatting libs
 # Global console for pretty printing and traceback for better debugging
 console = Console()
 traceback.install()
@@ -33,19 +31,6 @@ nodes having Uniform distribution (U) and others with Deterministic values.
   [e. Briefly explain your redesign perspectiveof such a system]
 """
 
-WEIGHTS = """
-(1, 2):  U (4,6)
-(1, 5):  6   
-(2, 3):  6
-(2, 4):  U (6,8)
-(3, 4):  Triangle(4,8,10)
-(4, 7):  4
-(5, 3):  8   
-(5, 4):  11
-(5, 6):  U (8,10)
-(6, 7):  U (9, 10)
-"""
-
 
 def setupArgParser() -> Namespace:
     parser = ArgumentParser(description=PROMPT)
@@ -54,10 +39,6 @@ def setupArgParser() -> Namespace:
     parser.add_argument('-use-kitty', action='store_false', help='Allows inline plotting in the Kitty terminal')
     parser.add_argument('-plots', action='store_true')
     return parser.parse_args()
-
-
-def getFig() -> plt.Figure:
-    return plt.figure(figsize=(8, 8))
 
 
 def getSystem() -> Tuple[ndarray, int, int]:
@@ -138,6 +119,11 @@ def simulatePaths(trials: int = 1, display: bool = False) -> Series:
     columns = [str(path) for path in paths]
     df = DataFrame(history, columns=columns)
 
+    # Print results
+    for col in columns:
+        p(f'Path {col}\t-> mean: {df[col].mean()}')
+    p(f'Critical Path = {columns[2]}')
+
     #! Remove constant path because it distorts the bound
     df = df.drop(columns=columns[3])
     cols = columns.copy()
@@ -152,11 +138,10 @@ def simulatePaths(trials: int = 1, display: bool = False) -> Series:
             plt.title('PDF for System Paths')
             plt.legend(labels=cols)
             plt.xlabel('Time')
-            # plt.ylabel('')
             plt.tight_layout()  # type: ignore
         plt.show()
 
-    return df[cols[-2]]
+    return df[columns[2]]
 
 
 def simulateSystem(trials: int = 1, display: bool = False) -> Series:
@@ -178,11 +163,16 @@ def simulateSystem(trials: int = 1, display: bool = False) -> Series:
 
     history = np.empty(trials)
 
+    np.random.seed(137)
     for trial in track(range(trials), 'Running System Trials'):
         system, start, end = getSystem()
         history[trial] = calcTime(system, end, start)
 
     hist = Series(history)
+
+    # Print results
+    p('[#10FF99][Trials stats]:')
+    p(hist.describe())   # type: ignore
 
     if display:
         with console.status('Plotting'), warnings.catch_warnings():
@@ -191,7 +181,6 @@ def simulateSystem(trials: int = 1, display: bool = False) -> Series:
             sns.set()
             plt.title('PDF for System Simulation')
             plt.xlabel('Time')
-            # plt.ylabel('')
             plt.tight_layout()  # type: ignore
         plt.show()
 
@@ -217,7 +206,6 @@ def main(args: Namespace):
             sns.set()
             plt.title('Simulation PDFs')
             plt.xlabel('Time')
-            # plt.ylabel('')
             plt.legend()
             plt.tight_layout()  # type: ignore
         plt.show()
@@ -229,14 +217,12 @@ def main(args: Namespace):
     p(f'Simulated System Mean: {actual_val  :0.4f}')
     p(f'Error: {pct_error:0.2f}%')
 
-    pass
-
 
 if __name__ == '__main__':
     args = setupArgParser()
 
     if args.use_kitty:
-        matplotlib.use('module://matplotlib-backend-kitty')
-        matplotlib.rc('figure', figsize=(100, 1), dpi=100)   # type: ignore
+        mpl.use('module://matplotlib-backend-kitty')
+        mpl.rc('figure', figsize=(100, 1), dpi=100)   # type: ignore
 
     main(args)
