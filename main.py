@@ -36,7 +36,7 @@ def setupArgParser() -> Namespace:
     parser = ArgumentParser(description=PROMPT)
     parser.add_argument('-trials', metavar='T', type=int, default=10,
                         help='Number of trials to run (to stabilize statistical values)')
-    parser.add_argument('-use-kitty', action='store_false', help='Allows inline plotting in the Kitty terminal')
+    parser.add_argument('-use-kitty', action='store_true', help='Allows inline plotting in the Kitty terminal')
     parser.add_argument('-plots', action='store_true')
     return parser.parse_args()
 
